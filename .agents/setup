@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Prepares a fresh Amp orb (https://ampcode.com/docs/orbs) to build, test and run Ember: the pnpm
+# workspace's dependencies, Playwright's Chromium for the browser tests, and a first build, which
+# `wrangler dev` serves the app's files from. Runs again over a stale snapshot, so every step is
+# idempotent and cheap when its work is already done.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+step() {
+  local name=$1
+  shift
+  echo "==> $name"
+  local start=$SECONDS
+  "$@"
+  echo "<== $name ($((SECONDS - start))s)"
+}
+
+# The orb image ships Node and pnpm; check they're ones Ember supports (package.json's engines and
+# packageManager) rather than reinstalling them.
+check_toolchain() {
+  node -e '
+    const [major, minor, patch] = process.versions.node.split(".").map(Number);
+    const ok = major >= 26 || (major === 24 && minor >= 15) || (major === 22 && (minor > 22 || (minor === 22 && patch >= 2)));
+    if (!ok) { console.error(`Node ${process.versions.node} is older than Ember supports`); process.exit(1); }
+  '
+  local wanted
+  wanted=$(node -p 'require("./package.json").packageManager.split("@")[1]')
+  if [[ "$(pnpm --version 2>/dev/null)" != "$wanted" ]]; then
+    sudo npm install --global --no-fund --no-audit "pnpm@$wanted"
+  fi
+  echo "node $(node --version), pnpm $(pnpm --version)"
+}
+
+install_dependencies() {
+  pnpm install --frozen-lockfile --prefer-offline
+}
+
+# Chromium for `pnpm test:e2e`, at the version e2e's @playwright/test pins, and the system libraries
+# it needs, which Playwright skips when they're there already.
+install_playwright() {
+  pnpm --filter @ember/e2e exec playwright install --with-deps chromium
+}
+
+build() {
+  pnpm build
+}
+
+step "Toolchain" check_toolchain
+step "Dependencies" install_dependencies
+step "Playwright Chromium" install_playwright
+step "Build" build

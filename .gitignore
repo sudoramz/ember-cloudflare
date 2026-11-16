@@ -11,3 +11,6 @@ skills-lock.json
 
 # What `pnpm run deploy` deploys a Worker on DO SQLite from, beside its wrangler config, while it deploys.
 *.deploy.json
+
+# The portal addresses Amp orbs write for the services they run.
+.amp/portals/*
